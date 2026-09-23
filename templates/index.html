@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Local Video Downloader</title>
+    <link
+    rel="icon"
+    type="image/png"
+    sizes="64x64"
+    href="/favicon.png?v=3"
+>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    >
+</head>
+<body>
+    <div class="container">
+        <!-- =====================================================
+             HERO
+        ====================================================== -->
+        <header class="hero-section">
+            <h1>
+                Local Video Downloader
+            </h1>
+            <p class="hero-subtitle">
+                Download videos, audio &amp; media
+            </p>
+            <!-- =================================================
+                 URL INPUT
+            ================================================== -->
+            <section class="input-section">
+                <div class="input-group">
+                    <input
+                        type="text"
+                        id="video-url"
+                        placeholder="Paste a video URL here..."
+                        autocomplete="off"
+                    >
+                    <button id="analyze-btn">
+                        ANALYZE
+                    </button>
+                </div>
+                <!-- Error Message -->
+                <div
+                    id="error-message"
+                    class="error-box hidden"
+                ></div>
+            </section>
+        </header>
+        <!-- =====================================================
+             MAIN
+        ====================================================== -->
+        <main>
+                        <!-- =================================================
+                 VIDEO ANALYSIS RESULT
+            ================================================== -->
+            <section
+                id="analysis-result"
+                class="result-section hidden"
+            >
+                <div class="video-card">
+                    <!-- =========================================
+                         THUMBNAIL
+                    ========================================== -->
+                    <div class="thumbnail-container">
+                        <img
+                            id="video-thumbnail"
+                            src=""
+                            alt="Thumbnail"
+                        >
+                    </div>
+                    <!-- =========================================
+                         VIDEO INFORMATION
+                    ========================================== -->
+                    <div class="video-info">
+                        <h2 id="video-title"></h2>
+                        <p id="video-duration"></p>
+                        <!-- =====================================
+                             FORMAT
+                        ====================================== -->
+                        <div class="options-group">
+                            <label>
+                                Format:
+                            </label>
+                            <div
+                                class="radio-group"
+                                id="format-options"
+                            >
+                                <label class="radio-item">
+                                    <input
+                                        type="radio"
+                                        name="format"
+                                        value="mp4"
+                                        checked
+                                    >
+                                    <span>
+                                        MP4
+                                    </span>
+                                </label>
+                                <label class="radio-item">
+                                    <input
+                                        type="radio"
+                                        name="format"
+                                        value="mkv"
+                                    >
+                                    <span>
+                                        MKV
+                                    </span>
+                                </label>
+                                <label class="radio-item">
+                                    <input
+                                        type="radio"
+                                        name="format"
+                                        value="mp3"
+                                    >
+                                    <span>
+                                        MP3
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- =====================================
+                             QUALITY
+                        ====================================== -->
+                        <div
+                            class="options-group"
+                            id="quality-container"
+                        >
+                            <label>
+                                Quality:
+                            </label>
+                            <div
+                                class="radio-group"
+                                id="quality-options"
+                            >
+                                <!--
+                                    Qualities are populated
+                                    dynamically by app.js.
+                                -->
+                            </div>
+                        </div>
+                        <!-- =====================================
+                             AUDIO LANGUAGE
+                        ====================================== -->
+                        <div
+                            class="options-group hidden"
+                            id="language-container"
+                        >
+                            <label>
+                                Audio Language:
+                            </label>
+                            <div
+                                class="radio-group"
+                                id="language-options"
+                            >
+                                <!--
+                                    Audio languages are populated
+                                    dynamically by app.js.
+                                -->
+                            </div>
+                        </div>
+                        <!-- =====================================
+                             DOWNLOAD BUTTON
+                        ====================================== -->
+                        <button
+                            id="download-btn"
+                            class="primary-btn"
+                        >
+                            DOWNLOAD
+                        </button>
+                    </div>
+                </div>
+            </section>
+            <!-- =================================================
+                 DOWNLOAD PROGRESS
+            ================================================== -->
+            <section
+                id="progress-section"
+                class="progress-section hidden"
+            >
+                <div class="progress-container">
+                    <div class="progress-header">
+                        <span id="progress-status">
+                            Downloading...
+                        </span>
+                        <span id="progress-percent">
+                            0%
+                        </span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div
+                            id="progress-bar-fill"
+                            class="progress-bar-fill"
+                            style="width: 0%"
+                        ></div>
+                    </div>
+                    <div class="progress-details">
+                        <span id="progress-speed">
+                            Speed: 0 MB/s
+                        </span>
+                        <span id="progress-eta">
+                            Remaining: 00:00
+                        </span>
+                    </div>
+                </div>
+            </section>
+            <!-- =================================================
+                 DOWNLOAD SUCCESS
+            ================================================== -->
+            <section
+                id="success-section"
+                class="success-section hidden"
+            >
+                <div class="success-box">
+                    <p>
+                        ✓ Download completed
+                    </p>
+                    <button
+                        id="open-folder-btn"
+                        class="secondary-btn"
+                    >
+                        View Downloads
+                    </button>
+                </div>
+            </section>
+            <!-- =================================================
+                 HOW IT WORKS
+            ================================================== -->
+            <section
+                class="info-section how-it-works-section"
+            >
+                <div class="section-heading">
+                    <h2>
+                        How it works
+                    </h2>
+                </div>
+                <div class="steps-grid">
+                    <!-- STEP 01 -->
+                    <div class="step-item">
+                        <div class="step-number">
+                            01
+                        </div>
+                        <div class="step-content">
+                            <h3>
+                                Paste URL
+                            </h3>
+                            <p>
+                                Enter your video URL above
+                                to analyze the available media.
+                            </p>
+                        </div>
+                    </div>
+                    <!-- STEP 02 -->
+                    <div class="step-item">
+                        <div class="step-number">
+                            02
+                        </div>
+                        <div class="step-content">
+                            <h3>
+                                Choose options
+                            </h3>
+                            <p>
+                                Select your preferred quality,
+                                format, and audio language
+                                when available.
+                            </p>
+                        </div>
+                    </div>
+                    <!-- STEP 03 -->
+                    <div class="step-item">
+                        <div class="step-number">
+                            03
+                        </div>
+                        <div class="step-content">
+                            <h3>
+                                Download
+                            </h3>
+                            <p>
+                                Start your download and monitor
+                                the progress until your file is ready.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <!-- =================================================
+                 SUPPORTED PLATFORMS
+            ================================================== -->
+            <section
+                class="info-section supported-platforms-section"
+            >
+                <div class="section-heading">
+                    <h2>
+                        Supported platforms
+                    </h2>
+                </div>
+                <p class="platform-list">
+                    YouTube
+                    <span>•</span>
+                    TikTok
+                    <span>•</span>
+                    Instagram
+                    <span>•</span>
+                    Facebook
+                    <span>•</span>
+                    Pinterest
+                    <span>•</span>
+                    Reddit
+                    <span>•</span>
+                    X
+                    <span>•</span>
+                    Vimeo
+                    <span>•</span>
+                    More
+                </p>
+            </section>
+        </main>
+        <!-- =====================================================
+             FOOTER
+        ====================================================== -->
+        <footer class="footer">
+            <p>
+                Local Video Downloader
+            </p>
+        </footer>
+    </div>
+    <!-- =========================================================
+         JAVASCRIPT
+    ========================================================== -->
+    <script
+        src="{{ url_for('static', filename='js/app.js') }}"
+    ></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Downloads
+downloads/*
+!downloads/.gitkeep
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# FFmpeg
+ffmpeg/
+ffmpeg.exe
+ffprobe.exe
+
+# Generated archives
+*.zip
+
+# Environment / secrets
+.env
+.env.*
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+services/downloader_backup.py
+services/downloader_backup_working.py
