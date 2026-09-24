@@ -1267,6 +1267,244 @@ def choose_video_format(info, height):
         f" ext={selected['ext']}"
     )
     return selected["id"]
+def choose_combined_format(info, height, language=""):
+    """
+    Choose a format that already contains BOTH video and audio.
+
+    This is the universal fallback for sources such as Pinterest where
+    yt-dlp may expose a combined A/V format but no separate audio-only
+    stream.
+
+    Preference:
+        1. Requested language when available.
+        2. H.264 video when available.
+        3. Highest resolution at or below the requested quality.
+        4. FPS / audio bitrate / file size.
+    """
+    formats = info.get("formats") or []
+    candidates = []
+    language = str(language or "").lower().strip()
+
+    for fmt in formats:
+        if not isinstance(fmt, dict):
+            continue
+
+        vcodec = str(fmt.get("vcodec") or "none")
+        acodec = str(fmt.get("acodec") or "none")
+
+        # We specifically need a real combined A/V stream.
+        if vcodec == "none" or acodec == "none":
+            continue
+
+        fmt_height = fmt.get("height")
+        try:
+            fmt_height = int(fmt_height or 0)
+        except (TypeError, ValueError):
+            fmt_height = 0
+
+        if fmt_height <= 0:
+            continue
+
+        fps = fmt.get("fps") or 0
+        try:
+            fps = float(fps or 0)
+        except (TypeError, ValueError):
+            fps = 0
+
+        abr = fmt.get("abr") or 0
+        try:
+            abr = float(abr or 0)
+        except (TypeError, ValueError):
+            abr = 0
+
+        filesize = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+        try:
+            filesize = int(filesize or 0)
+        except (TypeError, ValueError):
+            filesize = 0
+
+        fmt_language = str(fmt.get("language") or "").lower()
+        language_match = bool(
+            language
+            and (
+                fmt_language == language
+                or fmt_language.startswith(language + "-")
+                or fmt_language.startswith(language + "_")
+            )
+        )
+
+        h264 = (
+            vcodec.lower().startswith("avc1")
+            or vcodec.lower() == "h264"
+        )
+
+        candidates.append({
+            "id": str(fmt.get("format_id")),
+            "height": fmt_height,
+            "fps": fps,
+            "abr": abr,
+            "filesize": filesize,
+            "language_match": language_match,
+            "h264": h264,
+            "vcodec": vcodec,
+            "acodec": acodec,
+            "ext": str(fmt.get("ext") or ""),
+        })
+
+    if not candidates:
+        raise RuntimeError(
+            "No combined video+audio stream was found for this video."
+        )
+
+    # Prefer the requested audio language if the source exposes it.
+    if language:
+        matching = [
+            item for item in candidates
+            if item["language_match"]
+        ]
+        if matching:
+            candidates = matching
+            print(
+                f"Using requested combined audio language: {language}"
+            )
+        else:
+            print(
+                f"Requested audio language '{language}' was not available "
+                "in combined formats; using the best available combined stream."
+            )
+
+    # First try formats at or below the requested quality.
+    within_quality = [
+        item for item in candidates
+        if item["height"] <= height
+    ]
+
+    # If the source has no format at/below the requested quality,
+    # choose the smallest available format above it rather than failing.
+    pool = within_quality or candidates
+
+    if within_quality:
+        selected = max(
+            pool,
+            key=lambda item: (
+                item["h264"],
+                item["height"],
+                item["fps"],
+                item["abr"],
+                item["filesize"],
+            ),
+        )
+    else:
+        selected = min(
+            pool,
+            key=lambda item: (
+                item["height"],
+                not item["h264"],
+                -item["fps"],
+                -item["abr"],
+            ),
+        )
+
+    print(
+        "Selected combined video+audio stream:"
+        f" format={selected['id']},"
+        f" height={selected['height']}p,"
+        f" video_codec={selected['vcodec']},"
+        f" audio_codec={selected['acodec']},"
+        f" ext={selected['ext']}"
+    )
+
+    return selected["id"]
+
+
+def get_combined_fallback_formats(info, primary_id, height, language=""):
+    """Return up to two alternative combined A/V formats."""
+    formats = info.get("formats") or []
+    primary_id = str(primary_id)
+    language = str(language or "").lower().strip()
+    candidates = []
+
+    for fmt in formats:
+        if not isinstance(fmt, dict):
+            continue
+
+        fmt_id = str(fmt.get("format_id") or "")
+        if not fmt_id or fmt_id == primary_id:
+            continue
+
+        vcodec = str(fmt.get("vcodec") or "none")
+        acodec = str(fmt.get("acodec") or "none")
+        if vcodec == "none" or acodec == "none":
+            continue
+
+        fmt_height = fmt.get("height")
+        try:
+            fmt_height = int(fmt_height or 0)
+        except (TypeError, ValueError):
+            continue
+
+        if fmt_height <= 0:
+            continue
+
+        fps = fmt.get("fps") or 0
+        try:
+            fps = float(fps or 0)
+        except (TypeError, ValueError):
+            fps = 0
+
+        abr = fmt.get("abr") or 0
+        try:
+            abr = float(abr or 0)
+        except (TypeError, ValueError):
+            abr = 0
+
+        fmt_language = str(fmt.get("language") or "").lower()
+        language_match = bool(
+            language
+            and (
+                fmt_language == language
+                or fmt_language.startswith(language + "-")
+                or fmt_language.startswith(language + "_")
+            )
+        )
+
+        h264 = (
+            vcodec.lower().startswith("avc1")
+            or vcodec.lower() == "h264"
+        )
+
+        candidates.append({
+            "id": fmt_id,
+            "height": fmt_height,
+            "fps": fps,
+            "abr": abr,
+            "language_match": language_match,
+            "h264": h264,
+        })
+
+    if not candidates:
+        return []
+
+    within_quality = [
+        item for item in candidates
+        if item["height"] <= height
+    ]
+    pool = within_quality or candidates
+
+    pool.sort(
+        key=lambda item: (
+            item["language_match"],
+            item["h264"],
+            item["height"] if within_quality else -item["height"],
+            item["fps"],
+            item["abr"],
+        ),
+        reverse=True,
+    )
+
+    return [item["id"] for item in pool[:2]]
+
+
 def choose_audio_format(info, language=""):
     """Choose the best audio-only stream, respecting language when possible."""
     formats = info.get("formats") or []
@@ -1493,9 +1731,9 @@ def _download_exact_format(url, format_id, outtmpl, progress_callback):
         "no_warnings": False,
         "ffmpeg_location": get_ffmpeg_directory(),
         "progress_hooks": [progress_callback],
-        "retries": 0,
-        "fragment_retries": 0,
-        "extractor_retries": 0,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 2,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -1515,6 +1753,67 @@ def _download_exact_format(url, format_id, outtmpl, progress_callback):
                 f"Downloaded format {format_id} was not found."
             )
         return path
+def download_combined_format_to_mp4(
+    url,
+    format_id,
+    outtmpl,
+    final_path,
+    duration=0,
+    fallback_format_ids=None,
+    use_youtube_fallback=False,
+):
+    """
+    Download one combined video+audio stream and convert it to a
+    broadly compatible MP4.
+
+    This path is used when a source does not expose a separate
+    audio-only stream. FFmpeg converts the result to:
+        Video: H.264 / AVC
+        Audio: AAC 192k
+        Pixel format: yuv420p
+        Container: MP4
+    """
+    source_path = download_format_with_retry(
+        url,
+        format_id,
+        outtmpl,
+        progress_hook,
+        fallback_format_ids=fallback_format_ids,
+        stream_label="Combined video + audio",
+        use_youtube_fallback=use_youtube_fallback,
+    )
+
+    if cancel_event.is_set():
+        raise yt_dlp.utils.DownloadCancelled(
+            "Download cancelled by user."
+        )
+
+    # Convert through the existing compatibility pipeline.
+    converted_path = convert_to_compatible_mp4(
+        source_path,
+        duration=duration,
+    )
+
+    final_path = Path(final_path)
+    converted_path = Path(converted_path)
+
+    if converted_path.resolve() != final_path.resolve():
+        if final_path.exists():
+            try:
+                final_path.unlink()
+            except Exception:
+                pass
+        os.replace(converted_path, final_path)
+
+    if not media_has_video_and_audio(final_path):
+        raise RuntimeError(
+            "The final MP4 was created, but it does not contain "
+            "both video and audio streams."
+        )
+
+    return final_path
+
+
 def merge_video_audio_to_mp4(video_path, audio_path, final_path, duration=0):
     """Deterministically merge separately downloaded video and audio."""
     ffmpeg_path = get_ffmpeg_path()
@@ -1659,6 +1958,177 @@ def merge_video_audio_to_mp4(video_path, audio_path, final_path, duration=0):
                 temp_path.unlink()
             except Exception:
                 pass
+def build_mp4_format_selector(height, language=""):
+    """
+    Build a universal yt-dlp format selector for MP4 downloads.
+
+    Important:
+        We intentionally let yt-dlp choose the actual source formats.
+        Different extractors expose video/audio metadata differently,
+        so manually inspecting vcodec/acodec is not reliable enough for
+        a universal downloader.
+
+    Order:
+        1. Best video stream at/below requested quality + best audio.
+        2. Best combined stream at/below requested quality.
+        3. Best available combined stream as a final source fallback.
+
+    bestvideo* is used instead of bestvideo so a source-provided format
+    that already contains audio is allowed to pass through unchanged.
+    """
+    height = int(height or 0)
+
+    if height <= 0:
+        if language:
+            return (
+                "bestvideo*+bestaudio[language^="
+                f"{language}]/bestvideo*+bestaudio/best"
+            )
+        return "bestvideo*+bestaudio/best"
+
+    if language:
+        return (
+            f"bestvideo*[height<={height}]"
+            f"+bestaudio[language^={language}]"
+            f"/bestvideo*[height<={height}]+bestaudio"
+            f"/best[height<={height}]"
+            "/best"
+        )
+
+    return (
+        f"bestvideo*[height<={height}]+bestaudio"
+        f"/best[height<={height}]"
+        "/best"
+    )
+
+
+def download_native_mp4(
+    url,
+    height,
+    language="",
+    duration=0,
+    site="other",
+):
+    """
+    Download MP4 using yt-dlp's native format selection.
+
+    This replaces the old manual video/audio/combined format detection.
+    yt-dlp already knows how each extractor represents its formats and
+    how to merge separate streams with FFmpeg.
+
+    The downloaded result is then passed through our compatibility
+    conversion so the final file is always H.264 + AAC + yuv420p MP4.
+    """
+    global progress_data
+
+    selector = build_mp4_format_selector(
+        height,
+        language,
+    )
+
+    print("Universal MP4 format selector:")
+    print(selector)
+
+    download_started_at = time.time()
+    output_template = DOWNLOAD_FOLDER / "%(title)s.%(ext)s"
+
+    ydl_opts = {
+        "format": selector,
+        "outtmpl": str(output_template),
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+        "ffmpeg_location": get_ffmpeg_directory(),
+        "progress_hooks": [progress_hook],
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 5,
+        "socket_timeout": 30,
+        "merge_output_format": "mp4",
+        # Let yt-dlp handle source-provided formats naturally.
+        "check_formats": "selected",
+    }
+
+    # Keep the existing YouTube language preference behavior.
+    # For non-YouTube platforms language is normally empty.
+    if language:
+        ydl_opts["format_sort"] = [
+            f"lang:{language}",
+            "quality",
+            "res",
+            "fps",
+        ]
+
+    progress_data["status"] = "downloading"
+    progress_data["phase"] = "downloading"
+    progress_data["download_percentage"] = 0
+    progress_data["processing_percentage"] = 0
+    progress_data["percentage"] = 0
+    progress_data["speed"] = "Downloading..."
+    progress_data["eta"] = "Calculating..."
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            url,
+            download=True,
+        )
+
+        if cancel_event.is_set():
+            raise yt_dlp.utils.DownloadCancelled(
+                "Download cancelled by user."
+            )
+
+        if not info:
+            raise RuntimeError(
+                "Could not retrieve video information."
+            )
+
+        final_path = resolve_downloaded_media_path(
+            info,
+            ydl,
+            download_started_at,
+        )
+
+    if final_path is None:
+        raise FileNotFoundError(
+            "yt-dlp finished the download, but the final media file "
+            "could not be found."
+        )
+
+    final_path = Path(final_path)
+
+    if not final_path.exists() or final_path.stat().st_size <= 0:
+        raise RuntimeError(
+            "The downloaded media file is empty or missing."
+        )
+
+    # The source may already be H.264/AAC MP4, or it may be WebM/MKV/
+    # another source container. Convert through the same compatibility
+    # pipeline in every case so the application always returns MP4.
+    progress_data["download_percentage"] = 100
+    progress_data["processing_percentage"] = 0
+    progress_data["percentage"] = 0
+    progress_data["status"] = "processing"
+    progress_data["phase"] = "processing"
+    progress_data["speed"] = "Preparing MP4..."
+    progress_data["eta"] = "Processing..."
+
+    converted_path = convert_to_compatible_mp4(
+        final_path,
+        duration=duration,
+    )
+
+    converted_path = Path(converted_path)
+
+    if not media_has_video_and_audio(converted_path):
+        raise RuntimeError(
+            "The downloaded media was created, but the final file does "
+            "not contain both video and audio streams."
+        )
+
+    return converted_path
+
+
 def run_download(
     url,
     format_ext,
@@ -1667,132 +2137,78 @@ def run_download(
 ):
     global progress_data
     reset_progress()
+
     if not is_ffmpeg_installed():
         progress_data["status"] = "error"
         progress_data["error"] = (
             "FFmpeg not found. Please install FFmpeg and restart VS Code."
         )
         return
+
     url = str(url).strip()
     format_ext = str(format_ext).lower().strip()
     quality = str(quality).strip()
     language = str(language or "").lower().strip()
+
     if format_ext not in {"mp4", "mkv", "mp3"}:
         format_ext = "mp4"
+
     height = parse_quality(quality)
     DOWNLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
     original_url = url
     url = resolve_short_url(url)
+
     if url != original_url:
-        print(f"Resolved URL: {original_url} -> {url}")
+        print(
+            f"Resolved URL: {original_url} -> {url}"
+        )
+
     site = get_site(url)
     print(f"Detected platform: {site}")
+
     try:
         download_started_at = time.time()
+
         # =====================================================
-        # MP4: deterministic two-step download + FFmpeg merge
+        # MP4: universal yt-dlp native format selection
         # =====================================================
         if format_ext == "mp4":
-            inspect_opts = {
-                "quiet": False,
-                "no_warnings": False,
+            info_opts = {
+                "quiet": True,
+                "no_warnings": True,
                 "noplaylist": True,
                 "skip_download": True,
                 "ffmpeg_location": get_ffmpeg_directory(),
+                "socket_timeout": 30,
+                "retries": 5,
+                "extractor_retries": 5,
+                "fragment_retries": 5,
             }
-            with yt_dlp.YoutubeDL(inspect_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+
+            with yt_dlp.YoutubeDL(info_opts) as ydl:
+                info = ydl.extract_info(
+                    url,
+                    download=False,
+                )
+
             if not info:
-                raise RuntimeError("Could not retrieve video information.")
-            video_format_id = choose_video_format(info, height)
-            audio_format_id = choose_audio_format(info, language)
-            video_fallback_ids = get_video_fallback_formats(
-                info, video_format_id, height
-            )
-            audio_fallback_ids = get_audio_fallback_formats(
-                info, audio_format_id, language
-            )
-            print(
-                "yt-dlp will download separate streams:"
-                f" video={video_format_id}, audio={audio_format_id}"
-            )
-            if video_fallback_ids:
-                print(f"Video fallback formats: {video_fallback_ids}")
-            if audio_fallback_ids:
-                print(f"Audio fallback formats: {audio_fallback_ids}")
-            video_template = (
-                DOWNLOAD_FOLDER
-                / "%(_id)s.video.%(format_id)s.%(ext)s"
-            )
-            audio_template = (
-                DOWNLOAD_FOLDER
-                / "%(_id)s.audio.%(format_id)s.%(ext)s"
-            )
-            # The templates above intentionally use the video's ID.
-            # Ensure both streams use the same stable video ID.
-            video_template = DOWNLOAD_FOLDER / (
-                f"{info.get('id', 'download')}.video.%(format_id)s.%(ext)s"
-            )
-            audio_template = DOWNLOAD_FOLDER / (
-                f"{info.get('id', 'download')}.audio.%(format_id)s.%(ext)s"
-            )
-            progress_data["status"] = "downloading"
-            progress_data["phase"] = "downloading"
-            progress_data["download_percentage"] = 0
-            progress_data["processing_percentage"] = 0
-            progress_data["percentage"] = 0
-            progress_data["speed"] = "Downloading video..."
-            progress_data["eta"] = "Calculating..."
-            video_path = download_format_with_retry(
-                url,
-                video_format_id,
-                video_template,
-                progress_hook,
-                fallback_format_ids=video_fallback_ids,
-                stream_label="Video",
-                use_youtube_fallback=(site == "youtube"),
-            )
-            if cancel_event.is_set():
-                raise yt_dlp.utils.DownloadCancelled(
-                    "Download cancelled by user."
+                raise RuntimeError(
+                    "Could not retrieve video information."
                 )
-            progress_data["speed"] = "Downloading audio..."
-            audio_path = download_format_with_retry(
-                url,
-                audio_format_id,
-                audio_template,
-                progress_hook,
-                fallback_format_ids=audio_fallback_ids,
-                stream_label="Audio",
-                use_youtube_fallback=(site == "youtube"),
+
+            duration = float(
+                info.get("duration") or 0
             )
-            if cancel_event.is_set():
-                raise yt_dlp.utils.DownloadCancelled(
-                    "Download cancelled by user."
-                )
-            # Build the final sanitized title through yt-dlp itself.
-            with yt_dlp.YoutubeDL({
-                "outtmpl": str(DOWNLOAD_FOLDER / "%(title)s.%(ext)s"),
-                "noplaylist": True,
-            }) as ydl:
-                final_info = dict(info)
-                final_info["ext"] = "mp4"
-                final_path = Path(ydl.prepare_filename(final_info))
-            duration = float(info.get("duration") or 0)
-            final_path = merge_video_audio_to_mp4(
-                video_path,
-                audio_path,
-                final_path,
+
+            final_path = download_native_mp4(
+                url,
+                height,
+                language=language,
                 duration=duration,
+                site=site,
             )
-            # Remove the two temporary source streams only after the
-            # final A/V file has been verified.
-            for temp_source in (video_path, audio_path):
-                try:
-                    if temp_source.exists() and temp_source.resolve() != final_path.resolve():
-                        temp_source.unlink()
-                except Exception as exc:
-                    print(f"Could not remove temporary stream {temp_source}: {exc}")
+
             progress_data["filename"] = final_path.name
             progress_data["download_percentage"] = 100
             progress_data["processing_percentage"] = 100
@@ -1802,24 +2218,35 @@ def run_download(
             progress_data["status"] = "completed"
             progress_data["phase"] = "completed"
             progress_data["error"] = None
-            print(f"Download completed successfully: {final_path}")
+
+            print(
+                f"Download completed successfully: {final_path}"
+            )
             return
+
         # =====================================================
         # MP3 / MKV: keep yt-dlp's normal workflow
         # =====================================================
         if language:
-            audio_selector = f"bestaudio[language^={language}]/bestaudio"
+            audio_selector = (
+                f"bestaudio[language^={language}]"
+                "/bestaudio"
+            )
         else:
             audio_selector = "bestaudio"
+
         ydl_opts = {
             "progress_hooks": [progress_hook],
             "postprocessor_hooks": [postprocessor_hook],
-            "outtmpl": str(DOWNLOAD_FOLDER / "%(title)s.%(ext)s"),
+            "outtmpl": str(
+                DOWNLOAD_FOLDER / "%(title)s.%(ext)s"
+            ),
             "noplaylist": True,
             "quiet": False,
             "no_warnings": False,
             "ffmpeg_location": get_ffmpeg_directory(),
         }
+
         if format_ext == "mp3":
             ydl_opts.update({
                 "format": audio_selector,
@@ -1830,7 +2257,9 @@ def run_download(
                 }],
             })
         else:
-            video_selector = f"bestvideo[height<={height}]"
+            video_selector = (
+                f"bestvideo[height<={height}]"
+            )
             ydl_opts.update({
                 "format": (
                     f"{video_selector}+{audio_selector}/"
@@ -1838,31 +2267,47 @@ def run_download(
                 ),
                 "merge_output_format": "mkv",
             })
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            info = ydl.extract_info(
+                url,
+                download=True,
+            )
+
         if cancel_event.is_set():
             raise yt_dlp.utils.DownloadCancelled(
                 "Download cancelled by user."
             )
+
         if not info:
-            raise RuntimeError("Could not retrieve video information.")
+            raise RuntimeError(
+                "Could not retrieve video information."
+            )
+
         progress_data["download_percentage"] = 100
         progress_data["processing_percentage"] = 0
         progress_data["percentage"] = 0
         progress_data["status"] = "processing"
         progress_data["phase"] = "processing"
         progress_data["speed"] = (
-            "Finalizing audio..." if format_ext == "mp3"
+            "Finalizing audio..."
+            if format_ext == "mp3"
             else "Finalizing video..."
         )
         progress_data["eta"] = "Processing..."
+
         if format_ext == "mp3":
-            candidates = list(DOWNLOAD_FOLDER.glob("*.mp3"))
+            candidates = list(
+                DOWNLOAD_FOLDER.glob("*.mp3")
+            )
             if not candidates:
                 raise FileNotFoundError(
                     "MP3 download finished, but the final file could not be found."
                 )
-            final_path = max(candidates, key=lambda p: p.stat().st_mtime)
+            final_path = max(
+                candidates,
+                key=lambda p: p.stat().st_mtime,
+            )
         else:
             final_path = resolve_downloaded_media_path(
                 info,
@@ -1873,8 +2318,12 @@ def run_download(
                 raise FileNotFoundError(
                     "Download finished, but the final merged MKV file could not be found."
                 )
+
         if not final_path.exists() or final_path.stat().st_size <= 0:
-            raise RuntimeError("The final downloaded file is empty or missing.")
+            raise RuntimeError(
+                "The final downloaded file is empty or missing."
+            )
+
         progress_data["filename"] = final_path.name
         progress_data["download_percentage"] = 100
         progress_data["processing_percentage"] = 100
@@ -1884,7 +2333,11 @@ def run_download(
         progress_data["status"] = "completed"
         progress_data["phase"] = "completed"
         progress_data["error"] = None
-        print(f"Download completed successfully: {final_path}")
+
+        print(
+            f"Download completed successfully: {final_path}"
+        )
+
     except yt_dlp.utils.DownloadCancelled:
         cleanup_partial_files()
         progress_data["status"] = "cancelled"
@@ -1896,18 +2349,24 @@ def run_download(
         progress_data["eta"] = "00:00"
         progress_data["error"] = None
         print("Download cancelled by user.")
+
     except Exception as exc:
         if cancel_event.is_set():
             cleanup_partial_files()
             progress_data["status"] = "cancelled"
+            progress_data["phase"] = "cancelled"
             progress_data["percentage"] = 0
+            progress_data["download_percentage"] = 0
+            progress_data["processing_percentage"] = 0
             progress_data["speed"] = "Cancelled"
             progress_data["eta"] = "00:00"
             progress_data["error"] = None
             print("Download cancelled.")
             return
+
         progress_data["status"] = "error"
         progress_data["phase"] = "error"
+
         if site == "youtube" and is_youtube_403_error(exc):
             progress_data["error"] = (
                 "YouTube rejected this download request. "
@@ -1915,7 +2374,10 @@ def run_download(
             )
         else:
             progress_data["error"] = str(exc)
+
         print(f"Download error: {exc}")
+
+
 # ---------------------------------------------------------
 # Start Download Thread
 # ---------------------------------------------------------
